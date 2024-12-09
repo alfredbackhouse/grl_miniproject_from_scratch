@@ -1,14 +1,17 @@
 import torch
 import yaml
 from models.virtual_node import VirtualNodeModel
+from models.baseline_gcn import BaselineGCNModel
 import torch_geometric
 from torch_geometric.loader import DataLoader
 import yaml
-from data.utils import load_planetoid_dataset
+from data.utils import load_planetoid_dataset, hierarchical_clustering
 
 # Load Planetoid dataset
 dataset = load_planetoid_dataset(name="Cora", root="./data/Planetoid")
 data = dataset[0]  # Planetoid datasets typically have a single graph
+hiearchical_data = hierarchical_clustering(data, num_clusters_per_level=[32, 16], num_levels=2)
+print(hiearchical_data)
 
 with open("experiments/config.yaml", "r") as f:
     config = yaml.safe_load(f)
@@ -16,7 +19,7 @@ with open("experiments/config.yaml", "r") as f:
 model_config = config["model"]
 
 # Define model, loss, and optimiser
-model = VirtualNodeModel(
+model = BaselineGCNModel(
     input_dim=data.num_node_features,
     hid_dim=model_config["hid_dim"],
     n_classes=dataset.num_classes,

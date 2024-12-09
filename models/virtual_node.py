@@ -48,8 +48,7 @@ class VirtualNodeModel(BaseModel):
             virtual_node_feat = self.virtual_node_mlp(virtual_node_feat + aggregated)
 
             # Broadcast virtual node back to node embeddings
-            random_tensor = torch.randn(1, self.hid_dim, device=node_embeddings.device)  # Random tensor with shape [1, hid_dim]
-            node_embeddings = node_embeddings + random_tensor #+ virtual_node_feat  # Match [num_nodes, hid_dim]
+            node_embeddings = node_embeddings + virtual_node_feat  # Match [num_nodes, hid_dim]
             node_embeddings = torch.relu(node_embeddings)
             node_embeddings = nn.functional.dropout(node_embeddings, p=self.dropout_ratio, training=self.training)
 
