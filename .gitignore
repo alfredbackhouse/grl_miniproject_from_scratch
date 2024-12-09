@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Data and logs
+data/processed
+data/raw
+logs/
+
+# Weights & Biases
+wandb/
