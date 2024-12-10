@@ -1,5 +1,5 @@
 import unittest
-from data.utils import load_planetoid_dataset, hierarchical_clustering
+from data.utils import load_planetoid_dataset, hierarchical_clustering, hierarchical_reverse_clustering
 from torch_geometric.data import Data
 import torch
 import networkx as nx
@@ -31,17 +31,28 @@ class TestGraphOperations(unittest.TestCase):
         ], dtype=torch.float)
 
         test_graph = Data(x=x, edge_index=edge_index)
+        test_graph.train_mask = torch.ones(x.size(0), dtype=torch.bool)
+        test_graph.val_mask = torch.zeros(x.size(0), dtype=torch.bool)
+        test_graph.test_mask = torch.zeros(x.size(0), dtype=torch.bool)
+        test_graph.y = torch.tensor([0, 1, 2, 0, 1, 2, 0, 1, 2], dtype=torch.long)
 
-        num_clusters_per_level = [3, 3]
-        num_levels = 2     
+
+        num_clusters_per_level = [3, 1]
+        num_levels = 2
         # Cluster assignments for each layer
         cluster_assignments = [
             [0, 0, 0, 1, 1, 1, 2, 2, 2],  # Layer 0 clusters (example: triangles)
             [0, 1, 2],                    # Layer 1 clusters
             [0, 1, 2]                     # Layer 2 clusters
-        ]   
+        ]
         # Apply the hierarchical clustering function
         hierarchical_graph = hierarchical_clustering(
+            data=test_graph,
+            num_clusters_per_level=num_clusters_per_level,
+            num_levels=num_levels
+        )
+
+        hierarchical_reverse_graph = hierarchical_reverse_clustering(
             data=test_graph,
             num_clusters_per_level=num_clusters_per_level,
             num_levels=num_levels
@@ -51,6 +62,11 @@ class TestGraphOperations(unittest.TestCase):
         self.assertIsNotNone(hierarchical_graph)
         self.assertTrue(hierarchical_graph.x.size(0) > test_graph.x.size(0))  # More nodes due to virtual nodes
         self.assertTrue(hierarchical_graph.edge_index.size(1) > test_graph.edge_index.size(1))  # More edges
+
+        # Verify the structure of the hierarchical unet graph 
+        self.assertIsNotNone(hierarchical_reverse_graph)
+        self.assertTrue(hierarchical_reverse_graph.x.size(0) > test_graph.x.size(0))
+        self.assertTrue(hierarchical_reverse_graph.edge_index.size(1) > test_graph.edge_index.size(1))
 
         # Visualise the hierarchical graph
         def visualize_graph(data, title):
@@ -63,7 +79,7 @@ class TestGraphOperations(unittest.TestCase):
             plt.savefig(f"{title}.png")
             plt.show()
 
-        def visualize_hierarchical_graph(data, title, num_original_nodes, layer_offsets, cluster_assignments):
+        def visualize_hierarchical_graph(data, title, num_original_nodes, layer_offsets):
             """
             Visualise the hierarchical graph with a layered layout, preserving triangular layouts.
 
@@ -92,6 +108,9 @@ class TestGraphOperations(unittest.TestCase):
 
             # Draw the graph
             plt.figure(figsize=(12, 8))
+            print(len(pos))
+            print(data.x.size(0))
+            print(g)
             nx.draw(
                 g, pos, with_labels=True, node_size=500,
                 node_color=["lightblue" if i < num_original_nodes else "lightgreen" for i in range(data.x.size(0))],
@@ -106,7 +125,12 @@ class TestGraphOperations(unittest.TestCase):
 
         print("Visualising hierarchical graph...")
         print(hierarchical_graph)
-        visualize_hierarchical_graph(hierarchical_graph, "Hierarchical Graph", num_original_nodes=9, layer_offsets=[(0, 9), (9, 12), (12, 15)], cluster_assignments=cluster_assignments)    
+        visualize_hierarchical_graph(hierarchical_graph, "Hierarchical Graph", num_original_nodes=9, layer_offsets=[(0, 9), (9, 12), (12, 13)])    
+
+        print("Visualising hierarchical graph...")
+        print(hierarchical_reverse_graph)
+        visualize_hierarchical_graph(hierarchical_reverse_graph, "Hierarchical Reverse Graph", num_original_nodes=9, layer_offsets=[(0, 9), (9, 12), (12, 13), (13, 16)])    
+
 
 if __name__ == "__main__":
     print('running test data')

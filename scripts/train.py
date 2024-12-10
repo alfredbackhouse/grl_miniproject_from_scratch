@@ -10,8 +10,9 @@ from data.utils import load_planetoid_dataset, hierarchical_clustering
 # Load Planetoid dataset
 dataset = load_planetoid_dataset(name="Cora", root="./data/Planetoid")
 data = dataset[0]  # Planetoid datasets typically have a single graph
-hiearchical_data = hierarchical_clustering(data, num_clusters_per_level=[32, 16], num_levels=2)
-print(hiearchical_data)
+hiearchical_data = hierarchical_clustering(data, num_clusters_per_level=[32, 8, 1], num_levels=3)
+print("HSG:", hiearchical_data)
+data = hiearchical_data
 
 with open("experiments/config.yaml", "r") as f:
     config = yaml.safe_load(f)
