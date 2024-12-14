@@ -20,7 +20,7 @@ class BaseModel(nn.Module):
         self.n_classes = n_classes
         self.n_layers = n_layers
         self.dropout_ratio = dropout_ratio
-
+        assert(self.n_layers > 0)
         # Shared layer initialisation logic
         self.gcn_layers = nn.ModuleList()
         if n_layers > 0:
@@ -49,7 +49,14 @@ class BaseModel(nn.Module):
             Node embeddings after all GCN layers.
         """
         for layer in self.gcn_layers:
+            X_res = X  # Residual connection
             X = layer(X, A)
             X = torch.relu(X)
             X = nn.functional.dropout(X, p=self.dropout_ratio, training=self.training)
+            # X = X + X_res  # Add residual
         return X
+    
+    def reset_parameters(self):
+        for layer in self.gcn_layers:
+            layer.reset_parameters()
+        nn.init.xavier_uniform_(self.output_layer.weight)

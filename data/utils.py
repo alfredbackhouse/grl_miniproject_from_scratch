@@ -1,10 +1,12 @@
 import torch
 import torch_geometric
-from torch_geometric.datasets import Planetoid
+import os
+from torch_geometric.datasets import Planetoid, LRGBDataset
 from torch_geometric.transforms import GCNNorm
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_adj
 from sklearn.cluster import KMeans
+from torch_geometric.utils import from_networkx
 
 
 def load_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm()) -> torch_geometric.data.Dataset:
@@ -24,6 +26,72 @@ def load_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm()) -> 
     print(dataset.data)  # Inspect dataset structure
     return dataset
 
+def load_processed_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm(), clustering_type=None) -> torch_geometric.data.Dataset:
+    dataset = load_planetoid_dataset(name=name, root=root, transform=transform)
+    if clustering_type == 'hierarchical':
+        data = dataset[0]
+        hierarchical_data = hierarchical_reverse_clustering(data, num_clusters_per_level=[16, 1], num_levels=2, unet=True)
+        return hierarchical_data
+    
+def load_lrgb_dataset(name: str, split="train", root: str = "./data/LRGB", transform=GCNNorm()) -> torch_geometric.data.Dataset:
+    """
+    Loads the LRGB dataset.
+
+    Args:
+        name (str): Name of the dataset ('Lung', 'Retina', 'Gland').
+        root (str): Root directory for the dataset.
+        transform (callable): Transformations to apply to the dataset.
+
+    Returns:
+        torch_geometric.data.Dataset: The loaded dataset.
+    """
+    dataset = LRGBDataset(root=root, name=name, transform=transform, split=split)
+    print(f"Loaded {name} dataset with {len(dataset)} graphs.")
+    print(dataset)
+    print(vars(dataset))
+    print(dataset[0])  # Inspect dataset structure
+    return dataset
+
+def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", root: str = "./data/LRGB", overwrite:bool=False) -> torch_geometric.data.Dataset:
+    """
+    Process and save an LRGB dataset with a specific hierarchical clustering.
+
+    Args:
+        clustering_type (str): Type of clustering ('standard', 'reverse', etc.).
+        clustering_function (callable): The clustering function to use.
+        root (str): Directory to save the processed graphs.
+        overwrite (bool): If True, overwrite existing processed graphs.
+
+    Returns:
+        Dataset: The processed dataset.
+    """
+
+    # Load the original dataset
+    dataset = load_lrgb_dataset(name=name, root=root, split=split)
+
+    # Define the save directory based on clustering type
+    dataset_root = os.path.join(root, name)
+    save_dir = os.path.join(dataset_root, f"processed_{split}_{clustering_type}")
+    os.makedirs(save_dir, exist_ok=True)
+
+    processed_graphs = []
+
+    # Check if clustering is already done
+    for i, graph in enumerate(dataset):
+        save_path = os.path.join(save_dir, f"graph_{i}.pt")
+        if not os.path.exists(save_path) or overwrite:
+            print(f"Processing graph {i + 1}/{len(dataset)}...")
+            if clustering_type == "unet":
+                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[1], num_levels=0)
+            torch.save(clustered_graph, save_path)
+        else:
+            print(f"Loading preprocessed graph {i + 1}/{len(dataset)}...")
+            clustered_graph = torch.load(save_path)
+
+        processed_graphs.append(clustered_graph)
+
+    # Return the processed graphs as a new dataset-like object
+    return processed_graphs
 
 def hierarchical_clustering(data, num_clusters_per_level, num_levels):
     """
@@ -40,6 +108,8 @@ def hierarchical_clustering(data, num_clusters_per_level, num_levels):
         hierarchical_graph (torch_geometric.data.Data): Graph with original nodes,
             cluster summary nodes, and connections between them, retaining the original masks.
     """
+    if num_levels == 0: 
+        return data
     current_features = data.x
     current_edge_index = data.edge_index
     all_node_features = [data.x]  # Store all node features (original + cluster nodes)
@@ -96,20 +166,20 @@ def hierarchical_clustering(data, num_clusters_per_level, num_levels):
 
     # Extend masks to include only the original nodes
     y = torch.cat([data.y, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.long)])
-    train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
 
     # Return the final graph with retained masks
     final_graph = Data(x=combined_features, edge_index=combined_edge_index)
     final_graph.y = y
-    final_graph.train_mask = train_mask
-    final_graph.val_mask = val_mask
-    final_graph.test_mask = test_mask
+    # final_graph.train_mask = train_mask
+    # final_graph.val_mask = val_mask
+    # final_graph.test_mask = test_mask
 
-    return final_graph\
+    return final_graph
 
-def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels):
+def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, unet=False):
     """
     Create a hierarchical UNet-like structure with a bottleneck layer.
 
@@ -122,6 +192,8 @@ def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels):
         reverse_graph (torch_geometric.data.Data): Graph with hierarchical nodes (forward and reverse),
             including a bottleneck layer, and connections back to the original nodes.
     """
+    if num_levels == 0:
+        return data
     current_features = data.x
     current_edge_index = data.edge_index
     all_node_features = [data.x]  # Store all node features (original + hierarchical nodes)
@@ -203,6 +275,15 @@ def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels):
 
         reverse_features = all_node_features[level].clone()  # Copy hierarchical nodes from the forward pass
 
+        extra_edges = []
+        if unet and level > 0:
+            print('adding edges')
+            # Add skip connections
+            for old_idx in range(reverse_features.size(0)):
+                new_idx = old_idx + reverse_node_offset
+                extra_edges.append((old_idx + level_offsets[level], new_idx))
+        reverse_edges.append(torch.tensor(extra_edges, dtype=torch.int32).t())
+
         # Add intra-layer edges for reverse nodes
         if level > 0:
             reverse_intra_layer_edges = forward_intra_layer_edges[level-1].clone()
@@ -226,14 +307,14 @@ def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels):
 
     # Extend masks to include only the original nodes
     y = torch.cat([data.y, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.long)])
-    train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    # test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
 
     # Create the final hierarchical UNet graph
     reverse_graph = Data(x=combined_features, edge_index=combined_edge_index)
     reverse_graph.y = y
-    reverse_graph.train_mask = train_mask
-    reverse_graph.val_mask = val_mask
-    reverse_graph.test_mask = test_mask
+    # reverse_graph.train_mask = train_mask
+    # reverse_graph.val_mask = val_mask
+    # reverse_graph.test_mask = test_mask
     return reverse_graph

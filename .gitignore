@@ -11,3 +11,9 @@ logs/
 
 # Weights & Biases
 wandb/
+
+pascalvoc-sp/
+PascalVOC-SP/
+data/Cora
+data/LRGB
+temp.py
