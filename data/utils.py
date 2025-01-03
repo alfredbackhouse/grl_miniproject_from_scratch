@@ -7,7 +7,7 @@ from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_adj
 from sklearn.cluster import KMeans
 from torch_geometric.utils import from_networkx
-
+import numpy as np 
 
 def load_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm()) -> torch_geometric.data.Dataset:
     """
@@ -69,6 +69,9 @@ def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", r
     # Load the original dataset
     dataset = load_lrgb_dataset(name=name, root=root, split=split)
 
+    if clustering_type == "none":
+        return dataset
+
     # Define the save directory based on clustering type
     dataset_root = os.path.join(root, name)
     save_dir = os.path.join(dataset_root, f"processed_{split}_{clustering_type}")
@@ -82,18 +85,25 @@ def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", r
         if not os.path.exists(save_path) or overwrite:
             print(f"Processing graph {i + 1}/{len(dataset)}...")
             if clustering_type == "unet":
-                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[1], num_levels=0)
+                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2, unet=False)
+            elif clustering_type == "unet_with_skip":
+                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2, unet=True)
+            elif clustering_type == "hsg":
+                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2)
+            elif clustering_type == "vn":
+                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[1], num_levels=1)
             torch.save(clustered_graph, save_path)
         else:
             print(f"Loading preprocessed graph {i + 1}/{len(dataset)}...")
             clustered_graph = torch.load(save_path)
 
         processed_graphs.append(clustered_graph)
+        # break
 
     # Return the processed graphs as a new dataset-like object
     return processed_graphs
 
-def hierarchical_clustering(data, num_clusters_per_level, num_levels):
+def hierarchical_clustering(data, num_clusters_per_level, num_levels, cora=False):
     """
     Perform hierarchical clustering on a graph and compute a single hierarchical graph
     with edges from nodes in the current layer to their corresponding cluster summary node,
@@ -164,22 +174,29 @@ def hierarchical_clustering(data, num_clusters_per_level, num_levels):
     combined_features = torch.cat(all_node_features, dim=0)
     combined_edge_index = torch.cat(all_edge_indices, dim=1)
 
+    # Mark the final graph summary node
+    is_graph_summary = torch.zeros(combined_features.size(0), dtype=torch.bool, device=combined_features.device)
+    is_graph_summary[-1] = True  # Mark the last virtual node as the graph summary node
+
     # Extend masks to include only the original nodes
     y = torch.cat([data.y, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.long)])
-    # train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    # val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    # test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    if cora: 
+        train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+        val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+        test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
 
     # Return the final graph with retained masks
     final_graph = Data(x=combined_features, edge_index=combined_edge_index)
     final_graph.y = y
-    # final_graph.train_mask = train_mask
-    # final_graph.val_mask = val_mask
-    # final_graph.test_mask = test_mask
+    final_graph.is_graph_summary = is_graph_summary
+    if cora: 
+        final_graph.train_mask = train_mask
+        final_graph.val_mask = val_mask
+        final_graph.test_mask = test_mask
 
     return final_graph
 
-def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, unet=False):
+def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, unet=False, cora=False):
     """
     Create a hierarchical UNet-like structure with a bottleneck layer.
 
@@ -277,7 +294,6 @@ def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, un
 
         extra_edges = []
         if unet and level > 0:
-            print('adding edges')
             # Add skip connections
             for old_idx in range(reverse_features.size(0)):
                 new_idx = old_idx + reverse_node_offset
@@ -305,16 +321,23 @@ def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, un
     combined_features = torch.cat(all_node_features + reverse_node_features, dim=0)
     combined_edge_index = torch.cat(all_edge_indices + reverse_edges, dim=1)
 
+    # Mark the final graph summary node
+    is_graph_summary = torch.zeros(combined_features.size(0), dtype=torch.bool, device=combined_features.device)
+    is_graph_summary[bottleneck_offset] = True  # Mark the last virtual node as the graph summary node
+
     # Extend masks to include only the original nodes
     y = torch.cat([data.y, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.long)])
-    # train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    # val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
-    # test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+    if cora: 
+        train_mask = torch.cat([data.train_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+        val_mask = torch.cat([data.val_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
+        test_mask = torch.cat([data.test_mask, torch.zeros(combined_features.size(0) - data.x.size(0), dtype=torch.bool)])
 
     # Create the final hierarchical UNet graph
     reverse_graph = Data(x=combined_features, edge_index=combined_edge_index)
     reverse_graph.y = y
-    # reverse_graph.train_mask = train_mask
-    # reverse_graph.val_mask = val_mask
-    # reverse_graph.test_mask = test_mask
+    reverse_graph.is_graph_summary = is_graph_summary
+    if cora: 
+        reverse_graph.train_mask = train_mask
+        reverse_graph.val_mask = val_mask
+        reverse_graph.test_mask = test_mask
     return reverse_graph

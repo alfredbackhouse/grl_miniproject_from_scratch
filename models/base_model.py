@@ -30,6 +30,7 @@ class BaseModel(nn.Module):
 
         # Output layer
         self.output_layer = nn.Linear(hid_dim, n_classes)
+        # self.rwse_proj = nn.Linear(rwse_dim, input_dim)
 
     def forward(self, X, A):
         """
@@ -48,12 +49,15 @@ class BaseModel(nn.Module):
         Returns:
             Node embeddings after all GCN layers.
         """
+        i = 0
         for layer in self.gcn_layers:
             X_res = X  # Residual connection
             X = layer(X, A)
             X = torch.relu(X)
             X = nn.functional.dropout(X, p=self.dropout_ratio, training=self.training)
-            # X = X + X_res  # Add residual
+            if i > 0: 
+                X = X + X_res  # Add residual
+            i += 1
         return X
     
     def reset_parameters(self):
