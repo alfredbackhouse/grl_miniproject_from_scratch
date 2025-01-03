@@ -52,12 +52,25 @@ def compute_graph_statistics(graph):
     stats = {}
     stats['avg_nodes'] = graph.number_of_nodes()
     stats['avg_edges'] = graph.number_of_edges()
-    stats['diameter'] = nx.diameter(graph) if nx.is_connected(graph) else float('inf')
-    stats['avg_shortest_path'] = nx.average_shortest_path_length(graph) if nx.is_connected(graph) else float('inf')
+    stats['diameter'] = nx.diameter(graph.to_undirected()) if nx.is_connected(graph.to_undirected()) else float('inf')
+    stats['avg_shortest_path'] = nx.average_shortest_path_length(graph.to_undirected()) if nx.is_connected(graph.to_undirected()) else float('inf')
     
-    # Example placeholders for E[R_ab] and E[C_ab]
-    stats['E[R_ab]'] = np.mean([random.random() for _ in range(graph.number_of_edges())])
-    stats['E[C_ab]'] = np.mean([random.random() for _ in range(graph.number_of_edges())])
+    # Effective Resistance (using Moore-Penrose pseudoinverse of the Laplacian)
+    L = nx.laplacian_matrix(graph.to_undirected()).toarray()
+    try:
+        L_pinv = np.linalg.pinv(L)
+        resistances = []
+        for u, v in graph.edges():
+            resistances.append(L_pinv[u, u] + L_pinv[v, v] - 2 * L_pinv[u, v])
+        stats['E[R_ab]'] = np.mean(resistances)
+    except np.linalg.LinAlgError:
+        stats['E[R_ab]'] = float('inf')
+    
+    # Expected Commute Time (related to effective resistance)
+    try:
+        stats['E[C_ab]'] = np.mean([2 * graph.number_of_edges() * r for r in resistances])
+    except NameError:
+        stats['E[C_ab]'] = float('inf')
     
     # Placeholder metrics for GNC and ANC
     stats['GNC'] = random.uniform(1.0, 2.0)
@@ -66,11 +79,11 @@ def compute_graph_statistics(graph):
     return stats
 
 # Sample 100 random graphs
-random_graphs = random.sample(list(dataset), 1)
+random_graphs = random.sample(list(dataset), 100)
 all_stats = []
 
-for data in dataset:
-    graph = to_networkx(data, node_attrs=['x'], edge_attrs=['edge_attr'])
+for data in random_graphs:
+    graph = to_networkx(data, node_attrs=['x'])
     stats = compute_graph_statistics(graph)
     all_stats.append(stats)
 
