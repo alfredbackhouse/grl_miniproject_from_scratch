@@ -8,6 +8,10 @@ import numpy as np
 from torch_geometric.datasets import Planetoid
 from torch_geometric.utils import is_undirected, to_undirected
 
+"""
+This script is primarily used to test that the unet and hierarchical clustering functions are working as expected. 
+"""
+
 
 class TestGraphOperations(unittest.TestCase):
 

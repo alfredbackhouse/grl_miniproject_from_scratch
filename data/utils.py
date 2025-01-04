@@ -26,11 +26,11 @@ def load_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm()) -> 
     print(dataset.data)  # Inspect dataset structure
     return dataset
 
-def load_processed_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm(), clustering_type=None) -> torch_geometric.data.Dataset:
+def load_processed_planetoid_dataset(name: str, root: str = "./", transform=GCNNorm(), clustering_type=None, clusters=[16, 1]) -> torch_geometric.data.Dataset:
     dataset = load_planetoid_dataset(name=name, root=root, transform=transform)
     if clustering_type == 'hierarchical':
         data = dataset[0]
-        hierarchical_data = hierarchical_reverse_clustering(data, num_clusters_per_level=[16, 1], num_levels=2, unet=True)
+        hierarchical_data = hierarchical_reverse_clustering(data, num_clusters_per_level=clusters, num_levels=len(clusters), unet=True)
         return hierarchical_data
     
 def load_lrgb_dataset(name: str, split="train", root: str = "./data/LRGB", transform=GCNNorm()) -> torch_geometric.data.Dataset:
@@ -52,15 +52,16 @@ def load_lrgb_dataset(name: str, split="train", root: str = "./data/LRGB", trans
     print(dataset[0])  # Inspect dataset structure
     return dataset
 
-def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", root: str = "./data/LRGB", overwrite:bool=False) -> torch_geometric.data.Dataset:
+def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", root: str = "./data/LRGB", overwrite:bool=False, clusters=[16, 1]) -> torch_geometric.data.Dataset:
     """
     Process and save an LRGB dataset with a specific hierarchical clustering.
 
     Args:
-        clustering_type (str): Type of clustering ('standard', 'reverse', etc.).
+        clustering_type (str): Type of clustering to perform ('hierarchical', 'unet', 'unet_with_skip', 'vn').
         clustering_function (callable): The clustering function to use.
         root (str): Directory to save the processed graphs.
         overwrite (bool): If True, overwrite existing processed graphs.
+        clusters (list): Number of clusters per level in the hierarchy.
 
     Returns:
         Dataset: The processed dataset.
@@ -85,11 +86,11 @@ def load_processed_lrgb_dataset(name: str, clustering_type:str, split="train", r
         if not os.path.exists(save_path) or overwrite:
             print(f"Processing graph {i + 1}/{len(dataset)}...")
             if clustering_type == "unet":
-                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2, unet=False)
+                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=clusters, num_levels=len(clusters), unet=False)
             elif clustering_type == "unet_with_skip":
-                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2, unet=True)
+                clustered_graph = hierarchical_reverse_clustering(graph, num_clusters_per_level=clusters, num_levels=len(clusters), unet=True)
             elif clustering_type == "hsg":
-                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[16, 1], num_levels=2)
+                clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=clusters, num_levels=len(clusters))
             elif clustering_type == "vn":
                 clustered_graph = hierarchical_clustering(graph, num_clusters_per_level=[1], num_levels=1)
             torch.save(clustered_graph, save_path)
@@ -113,6 +114,7 @@ def hierarchical_clustering(data, num_clusters_per_level, num_levels, cora=False
         data (torch_geometric.data.Data): Input graph with `x` (features), `edge_index`, and masks.
         num_clusters_per_level (list): Number of clusters at each level (one per level).
         num_levels (int): Number of levels in the hierarchy.
+        cora (bool): If True, retain the train/val/test masks.
 
     Returns:
         hierarchical_graph (torch_geometric.data.Data): Graph with original nodes,
@@ -198,12 +200,14 @@ def hierarchical_clustering(data, num_clusters_per_level, num_levels, cora=False
 
 def hierarchical_reverse_clustering(data, num_clusters_per_level, num_levels, unet=False, cora=False):
     """
-    Create a hierarchical UNet-like structure with a bottleneck layer.
+    Create a hierarchical UNet-like structure with a bottleneck layer. Adapts to HSG / hierarchical_clustering to the unet method. 
 
     Args:
         data (torch_geometric.data.Data): Input graph with `x` (features) and `edge_index`.
         num_clusters_per_level (list): Number of clusters at each level (one per level).
         num_levels (int): Number of levels in the hierarchy.
+        unet (bool): If True, add skip connections in the reverse pass.
+        cora (bool): If True, retain the train/val/test masks.
 
     Returns:
         reverse_graph (torch_geometric.data.Data): Graph with hierarchical nodes (forward and reverse),

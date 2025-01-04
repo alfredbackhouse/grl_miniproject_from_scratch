@@ -30,7 +30,6 @@ class BaseModel(nn.Module):
 
         # Output layer
         self.output_layer = nn.Linear(hid_dim, n_classes)
-        # self.rwse_proj = nn.Linear(rwse_dim, input_dim)
 
     def forward(self, X, A):
         """

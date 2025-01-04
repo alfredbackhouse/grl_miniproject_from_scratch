@@ -16,6 +16,10 @@ import networkx as nx
 import numpy as np
 from torch_geometric.utils import to_networkx
 
+"""
+this script is used to compute the graph statistics for the dataset for use in the "topology" section of the results in the report
+"""
+
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
